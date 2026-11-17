@@ -39,7 +39,7 @@ Set-Location 'D:\pi-hunnu-2026'
 
 S1 截图同时展示了本地仓库根目录的文件列表，其中包含 `packages` 源码目录。
 
-![S1 本地仓库核验及源码目录](pi-agent-practice-02/s1-clone-info.png)
+![S1 本地仓库核验及源码目录](pi-agent-practice-02/s1-repository-verification.png)
 
 ## 三、构建顺序与模块分析
 
