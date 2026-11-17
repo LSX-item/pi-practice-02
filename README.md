@@ -37,7 +37,7 @@ Set-Location 'D:\pi-hunnu-2026'
 | `git rev-parse origin/main` | 与本地 `HEAD` 相同 |
 | `git status --short` | 无输出，工作区干净 |
 
-S1 截图底部同时记录了 `packages` 下的 12 个源码目录。
+S1 截图同时展示了本地仓库根目录的文件列表，其中包含 `packages` 源码目录。
 
 ![S1 本地仓库核验及源码目录](pi-agent-practice-02/s1-clone-info.png)
 
