@@ -86,24 +86,25 @@ telemetry → schema → chord → tui → codemode → mcp → ai → durable �
 
 ### 1. 根目录与子模块的 build 各读取什么配置？
 
-在根目录运行 `npm run build` 时，npm 读取根 `package.json` 的 `scripts.build`，按固定顺序调度子包。进入子包后，npm 读取该包自己的 `package.json`。其中 `tsc -p tsconfig.build.json` 读取子包的编译配置，并通过 `extends` 继承根 `tsconfig.base.json` 的通用选项。例如 `coding-agent/tsconfig.build.json` 还将部分内部导入映射到上游包在 `dist` 中的声明文件。`ai` 在编译前生成并检查模型数据，`coding-agent` 在编译后还复制资源并打包。
+在仓库根目录执行 `npm run build` 时，npm 从根 `package.json` 读取 `scripts.build`。这段脚本负责调度：先切到 `packages/telemetry`，再按第三节列出的顺序逐个进入子包并调用各自的编译命令。步骤之间用 `&&` 连接，因此其中一步失败，后面的包就不会继续构建。
 
-### 2. 构建顺序和依赖有什么关系？
+进入子包后，npm 读取该包自己的 `package.json`。常见命令是 `tsc -p tsconfig.build.json`，其中 `-p` 指定编译配置。以 `agent` 为例，它的配置继承根 `tsconfig.base.json`，以 `src/` 为源码目录、`dist/` 为输出目录，并通过 `paths` 指向 `ai` 已生成的声明文件。编译会产出 JavaScript、类型声明及映射文件。
 
-这版根脚本的顺序满足图中全部直接依赖的先后约束。例如 `coding-agent` 编译时会用到 `agent`、`ai` 和 `tui` 的声明，因此这些包先产出 `dist`。相邻模块可以没有依赖关系。例如 `chord` 后面紧跟 `tui`，后者的依赖声明没有 `chord`。把脚本中两个模块的位置连起来，无法据此得到一条依赖边。
+有两个包的构建还包括数据或发布资源的处理。`ai` 先运行 `generate-models` 刷新模型目录，然后由 `build:offline` 校验模型数据、编译 TypeScript，并把供应商数据放入 `dist/providers/data/`。`coding-agent` 先通过 `build:unbundled` 编译并复制主题等资源，再由 `scripts/build-coding-agent-bundle.mjs` 使用 esbuild 生成 `dist/bundle/`，其中包含 CLI 和 RPC 入口。
+
+### 2. 构建顺序和依赖有什么关系？相邻模块一定互相依赖吗？
+
+依赖关系给根脚本规定了先后约束。以 `durable` 为例，它的 `tsconfig.build.json` 把部分导入指向 `../chord/dist/` 和 `../ai/dist/` 下的声明文件。首次从干净源码构建时，`chord` 和 `ai` 需要先生成这些文件，`durable` 才能解析相应的类型。图上箭头从 `durable` 指向这两个包，而构建时要先处理箭头指向的包。
+
+相邻只表示脚本中的执行位置。例如，`env` 构建结束后紧接着构建 `agent`，但 `env` 声明的内部依赖是 `chord` 和 `durable`，`agent` 声明的是 `ai` 和 `schema`。就这四项依赖约束而言，互换 `env` 和 `agent` 的构建位置也成立，因为它们各自的依赖都已在更早的步骤构建。
 
 ### 3. 一条依赖路径中的模块如何分工？
 
-`coding-agent → agent → ai → schema`
+我选取 `coding-agent → agent → ai → schema`，用工具调用参数从模型返回到工具执行的过程来说明。
 
-以模型发起一次工具调用为例，`coding-agent` 的 `src/core/agent-session.ts` 把代理核心接入编码会话。`agent` 的 `src/agent-loop.ts` 调用流式模型接口，组织模型回复和工具执行轮次。`ai` 统一供应商响应，并在 `src/utils/validation.ts` 中调用 `schema` 的 `compile` 生成工具参数校验器。`schema` 把声明的输入约束转换为可复用的校验逻辑。
+1. `coding-agent` 在 `packages/coding-agent/src/core/agent-session.ts` 中将代理核心接入编码会话，为工具调用提供会话和工具上下文。
+2. `agent` 在 `packages/agent/src/agent-loop.ts` 中处理模型给出的工具调用，先调用 `validateToolArguments`，再把校验后的参数交给工具的 `execute` 方法。执行结果由代理循环整理成工具结果消息。
+3. `ai` 在 `packages/ai/src/utils/validation.ts` 中实现 `validateToolArguments`。它从工具定义中取得参数约束，并用 `schema` 提供的 `compile` 创建校验器。
+4. `schema` 将 JSON Schema 转成可执行的校验规则。例如，工具规定某字段必填时，缺少该字段的参数会在执行前被发现。
 
-## 六、重点分析模块
-
-这次报告重点展开 `agent`。`src/agent.ts` 中的 `Agent` 对象维护运行状态并接收可替换的流式函数。`src/agent-loop.ts` 将这一状态和模型输入输出串到循环中，因此编码会话可以向它提供自己的工具，而代理循环仍负责推进下一轮。分析时把构建脚本、依赖声明和这一条具体调用路径放在一起，可以分别验证构建先后、包之间的引用和实际运行分工。
-
-## 资料
-
-- [课程任务说明](https://github.com/hunnuOpenSourceSoftware2026/assignments/blob/main/practice/02-Pi-Agent-fork.md)
-- [本报告所用源码版本](https://github.com/MangDui/pi-hunnu-2026/tree/c3cc91632d0a1950fb122605b190233f2aa0006e)
-- [报告结构参考](https://github.com/sakgratama-collab/pi-agent-practice/blob/main/practice2/README.md)
+这条路径把编码会话、工具执行流程和参数约束放在不同的模块里。沿着 `agent` 中对 `validateToolArguments` 的调用继续读，就能定位到实际检查参数的代码。
